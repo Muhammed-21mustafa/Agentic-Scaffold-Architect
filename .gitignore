@@ -1,0 +1,6 @@
+__pycache__/
+.venv/
+venv/
+generated_projects/
+ScaffoldedProjects/
+.env
