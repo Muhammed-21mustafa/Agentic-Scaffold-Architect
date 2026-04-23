@@ -12,6 +12,7 @@ Rules:
 3. Every item must have "name" and "type" (either "file" or "folder"). Folders can have "children".
 4. ALWAYS include both Dockerfile AND docker-compose.yml at root level.
 5. Every folder MUST contain at least one file (e.g., __init__.py for Python packages). Do NOT create empty folders.
+6. CRITICAL: You MUST ALWAYS include 'requirements.txt' and '.gitignore' as files in the root folder.
 
 JSON Schema (use EXACTLY these field names):
 {
@@ -85,9 +86,10 @@ Rules:
 5. For dependency files (requirements.txt, package.json), write ONLY package names, one per line. Do NOT write Python code, import statements, or class definitions in requirements.txt.
 6. CRITICAL: ONLY import names that are explicitly defined in the "Previously Generated Files" section. If a name (class, variable, function) does NOT appear there, do NOT import it. Never hallucinate imports.
 7. Model files (in models/ directory) MUST define at least one model class. Do not leave them with only Base definition.
+8. NEVER leave classes or functions empty with 'pass'. You must implement the actual SQLAlchemy fields, Pydantic fields, or CRUD logic.
 
 FRAMEWORK-SPECIFIC RULES (MUST FOLLOW):
-- FastAPI: NEVER create a new FastAPI() instance in route files. Use: from fastapi import APIRouter; router = APIRouter(). Only main.py or app.py should have app = FastAPI().
+- FastAPI: ONLY use 'app = FastAPI()' in main.py or app.py. NEVER use it in schemas, models, config, or route files. For routes, use 'router = APIRouter()'.
 - FastAPI: The main app file (main.py or app.py) MUST call app.include_router(router) to connect route modules.
 - FastAPI: For tests, NEVER use app.test_client(). Use: from fastapi.testclient import TestClient; client = TestClient(app)
 - FastAPI: uvicorn.run(app) MUST be inside an 'if __name__ == "__main__":' guard. Never call it at module level.
