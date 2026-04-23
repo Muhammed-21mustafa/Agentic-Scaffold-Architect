@@ -16,7 +16,7 @@
 
 > **"Don't just generate code. Architect it."**
 > 
-> This is not a code snippet generator. This is an **autonomous multi-agent orchestration system** that thinks, validates, self-corrects, and physically materializes complete software project structures — entirely on your local machine.
+> This is not a code snippet generator. This is an **autonomous multi-agent orchestration system** that thinks, validates, self-corrects, and physically materializes complete software project structures — with real boilerplate code inside every file — entirely on your local machine.
 
 <br/>
 
@@ -27,72 +27,67 @@
 
 Modern AI tools write code. **Agentic-Project-Architect** does something fundamentally different: it *thinks like a software architect*.
 
-When you describe a project, a team of specialized AI agents is assembled. They debate, validate, and correct each other's output in a closed feedback loop — just like a real engineering team — before a single folder is created on disk. The result is a production-grade project scaffold with rationale-backed architecture and a full README, generated in seconds, running 100% locally.
+When you describe a project, a team of specialized AI agents is assembled. They debate, validate, and correct each other's output in a closed feedback loop — just like a real engineering team — before a single folder is created on disk. The result is a production-grade project scaffold with rationale-backed architecture, real boilerplate code, and a full README, generated in seconds, running 100% locally.
 
 ---
 
 ## ✨ Core Features
 
-### 🤖 Multi-Agent Workflow
-Three specialized agents collaborate in a defined pipeline:
+### 🤖 Multi-Agent Workflow (5 Agents)
+Five specialized agents collaborate in a two-phase pipeline:
 
 | Agent | Role | Technology |
 |---|---|---|
 | **Architect Agent** | Translates natural language requirements into a structured JSON architecture blueprint | `StructureGenerator` + Llama 3 |
-| **Validator Agent** | Audits the blueprint against a strict Pydantic-enforced schema, rejecting any malformed output | `JsonValidator` + Schema Rules |
+| **Validator Agent** | Audits the blueprint against a strict Pydantic-enforced schema (`extra='forbid'`), rejecting any malformed output | `JsonValidator` + Schema Rules |
 | **Corrector Agent** | Receives validation failures and autonomously re-prompts Llama 3 for a corrected blueprint | `JsonCorrector` + Llama 3 |
-| **Doc Agent** | Consumes the validated architecture and writes a deep, developer-grade `README.md` | `DocGenerator` + Llama 3 |
-| **Builder Agent** | Walks the final JSON tree and physically materializes the project on disk | `FileSystemBuilder` |
+| **Content Injector Agent** | Walks the validated tree and generates real boilerplate code for each file via **individual, focused LLM calls** | `ContentGenerator` + Llama 3 |
+| **Doc Agent** | Consumes the enriched architecture and writes a deep, developer-grade `README.md` | `DocGenerator` + Llama 3 |
 
-### 🔄 State Machine Architecture with Self-Correction Loop
+### 🔄 Two-Phase Pipeline with Self-Correction Loop
 
-The backbone of this system is a **LangGraph `StateGraph`** — a directed graph where each node is a stateful, isolated agent. The system carries a shared `PipelineState` object across all nodes:
+The backbone of this system is a **LangGraph `StateGraph`** — a directed graph where each node is a stateful, isolated agent. The key innovation is the **two-phase architecture**:
+
+**Phase 1 — Structure Generation:** The Architect Agent generates ONLY the folder/file tree. No content. This keeps the task small enough for any local model to handle accurately.
+
+**Phase 2 — Per-File Content Injection:** The Content Injector Agent walks the validated tree and makes **individual, focused LLM calls** for each file. Instead of asking one model call to generate everything, each file gets its own dedicated generation call — the same decomposition strategy used by professional AI coding tools like Cursor.
 
 ```python
 class PipelineState(TypedDict):
-    requirements: str       # User's natural language input
-    structure: Optional[str]   # The JSON architecture blueprint
+    requirements: str           # User's natural language input
+    structure: Optional[str]    # The JSON architecture blueprint (enriched with content)
     documentation: Optional[str]  # Generated README.md content
     error: Optional[str]        # Validation failure message
     json_retries: int           # Self-correction loop counter
 ```
 
-The key innovation is the **conditional edge** — the graph's routing logic. After validation, the system *decides its own next action*:
+After validation, the system *decides its own next action* via conditional edges:
 
-- ✅ **Valid** → proceed to documentation generation
+- ✅ **Valid** → proceed to content injection, then documentation
 - ❌ **Invalid** → enter self-correction loop, retry up to `MAX_RETRIES` times, then re-validate
 
 This is not a simple pipeline. It is a **feedback-driven control system**.
 
+### 🛡️ Strict Schema Validation with Pydantic
+
+The Validator Agent uses Pydantic v2 with `extra='forbid'` — meaning any hallucinated JSON fields that don't match the schema are immediately caught and rejected. This prevents the LLM from silently producing malformed output that would otherwise slip through.
+
+### 🧹 Robust LLM Output Cleaning
+
+A multi-layered regex-based cleaner (`core/utils.py` + `ContentGenerator._clean_llm_output`) strips:
+- Markdown code block wrappers (`` ```python ... ``` ``)
+- Trailing `Note:` / `Explanation:` commentary
+- Standalone `` ``` `` artifacts
+- Any conversational text the model appends after code
+
 ### 🔒 100% Local & Secure (Zero Data Egress)
 
-All inference runs through **Ollama** (`http://localhost:11434`) on your local machine (WSL2/Ubuntu or native). Your proprietary requirements, business logic descriptions, and architecture decisions **never leave your hardware**.
+All inference runs through **Ollama** (`http://localhost:11434`) on your local machine. Your proprietary requirements, business logic descriptions, and architecture decisions **never leave your hardware**.
 
 - No OpenAI API keys
 - No cloud dependencies
 - No telemetry
 - Configurable model via `Config.OLLAMA_MODEL` (defaults to `llama3`)
-
-### 🏗️ Automated Physical Scaffolding
-
-The `FileSystemBuilder` transforms the agent's JSON blueprint into a real directory tree on disk:
-
-```json
-{
-  "root_name": "my-ecommerce-platform",
-  "items": [
-    { "name": "backend", "type": "folder", "children": [
-      { "name": "src", "type": "folder", "children": [
-        { "name": "main", "type": "folder", "children": [...] }
-      ]}
-    ]},
-    { "name": "frontend", "type": "folder", "children": [...] },
-    { "name": "README.md", "type": "file" }
-  ]
-}
-```
-
-The builder recursively walks this tree, creates every `folder` and `file`, injects scaffold headers into source files, and writes the AI-generated `README.md` into the project root — ready to open in VSCode, Cursor, or any AI-powered IDE.
 
 ---
 
@@ -104,14 +99,12 @@ The builder recursively walks this tree, creates every `folder` and `file`, inje
 | **Chain Primitives** | LangChain Core | Prompt management & model abstraction |
 | **LLM Inference** | Llama 3 via Ollama | All generation & correction tasks |
 | **Runtime** | Python 3.10+ | Core logic & file system operations |
-| **Schema Validation** | Pydantic v2 | State & config enforcement |
-| **Target Architectures** | Java Spring Boot, React, Django, Flutter, Go, etc. | Generated scaffolds |
+| **Schema Validation** | Pydantic v2 (`extra='forbid'`) | Strict state & blueprint enforcement |
+| **Output Cleaning** | Regex (`re` module) | LLM hallucination stripping |
 
 ---
 
 ## ⚙️ How It Works — The Pipeline
-
-The following diagram illustrates the full execution flow of the agent system:
 
 ```mermaid
 flowchart TD
@@ -120,53 +113,60 @@ flowchart TD
     subgraph LANGGRAPH ["🧠 LangGraph StateGraph (Autonomous Orchestration)"]
         direction TB
 
-        B["🏛️ Architect Agent\n(generate_structure_node)\nTranslates requirements → JSON blueprint"]
+        B["🏛️ Architect Agent\n(generate_structure_node)\nRequirements → JSON blueprint\n(Structure ONLY, no content)"]
         B --> C
 
-        C["🔍 Validator Agent\n(validate_structure_node)\nAudits JSON against Pydantic schema"]
+        C["🔍 Validator Agent\n(validate_structure_node)\nPydantic schema audit\n(extra='forbid')"]
         C --> D{{"🔀 architecture_router\n(Conditional Edge)"}}
 
-        D -->|"✅ error is None"| E
-        D -->|"❌ error detected"| F
+        D -->|"✅ Valid"| E
+        D -->|"❌ Invalid"| F
 
         F["🔧 Corrector Agent\n(correct_structure_node)\nRe-prompts LLM with error context\nIncrements retry counter"]
         F -->|"Loop (max 3 retries)"| C
 
-        E["📝 Doc Agent\n(generate_documentation_node)\nWrites deep architectural README.md"]
+        E["💉 Content Injector Agent\n(inject_content_node)\nPer-file LLM calls\n16 files = 16 focused calls"]
+        E --> G
+
+        G["📝 Doc Agent\n(generate_documentation_node)\nWrites architectural README.md"]
     end
 
-    E --> G
-    G{{"🖥️ User Decision\n(Build on disk?)"}}
-    G -->|"Yes (e)"| H
-    G -->|"No (h)"| I
+    G --> H
+    H{{"🖥️ User Decision\n(Build on disk?)"}}
+    H -->|"Yes (e)"| I
+    H -->|"No (h)"| J
 
-    H["🏗️ Physical Builder\n(FileSystemBuilder.build)\nMaterializes full project tree on disk"]
-    H --> J(["✅ Project Ready\nScaffoldedProjects/my-project/"])
+    I["🏗️ Physical Builder\n(FileSystemBuilder.build)\nMaterializes project + code on disk"]
+    I --> K(["✅ Project Ready\ngenerated_projects/my-project/"])
 
-    I(["📋 Architecture plan\nprinted to console only"])
+    J(["📋 Architecture plan\nprinted to console only"])
 
     style LANGGRAPH fill:#1a1a2e,stroke:#FF6B35,stroke-width:2px,color:#fff
     style D fill:#FF6B35,color:#fff,stroke:#fff
     style F fill:#7B2D8B,color:#fff
-    style H fill:#1a6b3c,color:#fff
+    style E fill:#0D6EFD,color:#fff
+    style I fill:#1a6b3c,color:#fff
 ```
 
 ### Node Breakdown
 
 #### 1. `generate_structure` — The Architect Agent
-Receives raw requirements, constructs a role-injected system prompt (`STRUCTURE_GENERATION_SYSTEM`), and sends it to the local Ollama instance with `format="json"` enforced. Returns a raw JSON string representing the full project architecture.
+Receives raw requirements and generates ONLY the folder/file tree as JSON. No code content is produced here — this keeps the task focused and prevents the model from being overwhelmed.
 
 #### 2. `validate_structure` — The Validator Agent  
-Runs the JSON string through a structural validator. Checks for required fields (`root_name`, `items`), correct `type` values (`folder` | `file`), and recursive child integrity. Sets `error` in state on failure — **this is the trigger for the self-correction loop**.
+Runs the JSON through Pydantic v2 with `extra='forbid'`. Catches missing fields (`root_name`, `items`), incorrect types, hallucinated extra fields, and recursive child integrity issues. Sets `error` in state on failure — **this is the trigger for the self-correction loop**.
 
 #### 3. `correct_structure` — The Corrector Agent  
-Receives the invalid JSON *and* the error message, constructs a correction-focused prompt (`JSON_CORRECTION_SYSTEM`), and re-queries the LLM. Maintains a `json_retries` counter; raises `ValueError` after `MAX_RETRIES` to prevent infinite loops.
+Receives the invalid JSON *and* the error message, plus the correct schema definition. Re-queries the LLM with full context. Maintains a `json_retries` counter; raises `ValueError` after `MAX_RETRIES`.
 
-#### 4. `generate_documentation` — The Doc Agent  
-Given the validated architecture JSON and original requirements, generates a comprehensive, developer-grade `README.md` using the `DOC_GENERATION_SYSTEM` prompt. Output is cleaned of any potential markdown hallucinations.
+#### 4. `inject_content` — The Content Injector Agent  
+The key innovation. Walks the validated structure tree and makes **individual, focused LLM calls** for each important file. A `requirements.txt` gets one call, a `main.py` gets another, a `Dockerfile` gets its own. Each call is small enough for even an 8B model to handle accurately. Output is cleaned through a multi-layered regex pipeline.
 
-#### 5. `FileSystemBuilder` — The Physical Builder  
-A deterministic (non-AI) component that walks the final JSON tree and performs real I/O: creates directories with `os.makedirs`, initializes source files with scaffold headers, and writes the AI-generated README to the project root.
+#### 5. `generate_documentation` — The Doc Agent  
+Given the enriched architecture JSON (with all code content) and original requirements, generates a comprehensive README.md.
+
+#### 6. `FileSystemBuilder` — The Physical Builder  
+A deterministic (non-AI) component using `pathlib` that walks the final JSON tree and performs real I/O: creates directories, writes boilerplate code from `content` fields, and places the README.
 
 ---
 
@@ -175,7 +175,7 @@ A deterministic (non-AI) component that walks the final JSON tree and performs r
 ### Prerequisites
 
 - Python 3.10+
-- [Ollama](https://ollama.com) installed and running (native or via WSL2/Ubuntu)
+- [Ollama](https://ollama.com) installed and running
 - Llama 3 model pulled locally
 
 ### 1. Pull Llama 3 via Ollama
@@ -184,16 +184,11 @@ A deterministic (non-AI) component that walks the final JSON tree and performs r
 ollama pull llama3
 ```
 
-Verify Ollama is reachable:
-```bash
-curl http://localhost:11434/api/generate -d '{"model": "llama3", "prompt": "Hello", "stream": false}'
-```
-
 ### 2. Clone & Install Dependencies
 
 ```bash
-git clone https://github.com/your-username/Agentic-Project-Architect.git
-cd Agentic-Project-Architect
+git clone https://github.com/Muhammed-21mustafa/Agentic-Scaffold-Architect.git
+cd Agentic-Scaffold-Architect
 pip install -r requirements.txt
 ```
 
@@ -203,36 +198,31 @@ pip install -r requirements.txt
 python main.py
 ```
 
-You will be greeted with a prompt:
+Example prompt:
 ```
-Welcome to the AI Solutions Architect (Multi-Agent Pipeline)
-------------------------------------------------------------
-Describe your project, including the tech stack and specific requirements.
-
-Project Requirements: > Build a Spring Boot REST API backend with a React frontend
-                         for an e-commerce platform. Include JWT auth, a PostgreSQL 
-                         database, and a clean microservices-ready folder structure.
+Project Requirements: > Build a FastAPI REST API for a todo application with Python.
+                        Include database models with SQLAlchemy, Pydantic schemas,
+                        CRUD endpoints, and a Dockerfile for deployment.
 ```
 
-### 4. Review & Scaffold
-
-After agent execution, the system will print:
-- The full JSON architecture blueprint
-- A preview of the generated README
-- A prompt to physically build the project on disk
+### 4. Watch the Agents Work
 
 ```
-=== GENERATION COMPLETE ===
---- [PROJECT ARCHITECTURE SCHEMA] ---
-{ "root_name": "ecommerce-platform", ... }
+[*] Ajan (Mimar): İhtiyaçlar analiz ediliyor...
+[+] Linter: Plan hatasız, onaylandı.
+[*] Ajan (Kod Enjektörü): Her dosya için boilerplate kod üretiliyor...
+    [1/16] Kod enjekte ediliyor -> docker-compose.yml
+    [2/16] Kod enjekte ediliyor -> Dockerfile
+    [3/16] Kod enjekte ediliyor -> requirements.txt
+    ...
+    [16/16] Kod enjekte ediliyor -> tests/__init__.py
+[+] Kod enjeksiyonu tamamlandı.
+[*] Ajan (Belgelendirici): README yazılıyor...
+[+] Belgelendirme tamamlandı.
 
---- [ARCHITECTURAL README PREVIEW] ---
-# Ecommerce Platform — Architectural Guide ...
-
-Build this project's template on disk? (y/n): > y
-
-[PHYSICAL BUILD] Connecting to filesystem...
-[SUCCESS] Project ready at: C:\Users\...\ScaffoldedProjects\ecommerce-platform
+=== JENERASYON BAŞARIYLA TAMAMLANDI ===
+Build this project? (e/h): > e
+[BAŞARILI] Projeniz hazır! Konum: generated_projects/my_todo_app
 ```
 
 ---
@@ -242,30 +232,33 @@ Build this project's template on disk? (y/n): > y
 ```
 Agentic-Project-Architect/
 │
-├── main.py                     # Entry point & user I/O
+├── main.py                        # Entry point & user I/O
 │
 ├── core/
-│   ├── graph.py                # 🧠 LangGraph StateGraph definition & node wiring
-│   ├── state.py                # PipelineState TypedDict (shared agent memory)
-│   ├── config.py               # Pydantic Config (Ollama host, model, retry limits)
-│   ├── llm_client.py           # Zero-dependency Ollama REST client
-│   ├── filesystem.py           # FileSystemBuilder (physical scaffold engine)
-│   └── orchestrator.py         # Legacy synchronous pipeline (v1 reference)
+│   ├── graph.py                   # 🧠 LangGraph StateGraph (5 nodes + conditional edges)
+│   ├── state.py                   # PipelineState TypedDict (shared agent memory)
+│   ├── config.py                  # Pydantic Config (Ollama host, model, retry limits, output dir)
+│   ├── llm_client.py              # Zero-dependency Ollama REST client (urllib only)
+│   ├── filesystem.py              # FileSystemBuilder (pathlib-based scaffold engine)
+│   └── utils.py                   # Regex utilities (extract_json, extract_markdown)
 │
 ├── generators/
-│   ├── structure_generator.py  # Architect Agent: requirements → JSON blueprint
-│   └── doc_generator.py        # Doc Agent: architecture → README.md
+│   ├── structure_generator.py     # Phase 1: Requirements → JSON blueprint (structure only)
+│   ├── content_generator.py       # Phase 2: Per-file boilerplate code injection
+│   └── doc_generator.py           # Phase 3: Architecture → README.md
 │
 ├── validators/
-│   └── json_validator.py       # Schema validator for architecture blueprints
+│   └── json_validator.py          # Pydantic schema validator (extra='forbid')
 │
 ├── correctors/
-│   └── json_corrector.py       # Self-correction agent (LLM-powered repair)
+│   └── json_corrector.py          # Self-correction agent (LLM-powered repair)
 │
 ├── prompts/
-│   └── structure_prompts.py    # All system & user prompts (role-injected)
+│   └── structure_prompts.py       # All system & user prompts (3 phases + correction)
 │
-├── schemas/                    # Pydantic validation schemas
+├── schemas/
+│   └── folder_schema.py           # Pydantic v2 schemas (Node + FolderStructure)
+│
 └── requirements.txt
 ```
 
@@ -277,39 +270,38 @@ All system parameters are centralized in `core/config.py`:
 
 ```python
 class Config(BaseModel):
-    OLLAMA_HOST: str = "http://localhost:11434"  # Ollama API endpoint
-    OLLAMA_MODEL: str = "llama3"                 # Target model (swap for llama3:70b, mistral, etc.)
-    MAX_RETRIES: int = 3                         # Max self-correction loop iterations
-    TIMEOUT_SECONDS: int = 120                   # LLM response timeout
-```
-
-To use a different local model (e.g., Mistral, CodeLlama), simply change `OLLAMA_MODEL`:
-
-```bash
-ollama pull codellama
-```
-```python
-# core/config.py
-OLLAMA_MODEL: str = "codellama"
+    OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3"
+    MAX_RETRIES: int = 3
+    TIMEOUT_SECONDS: int = 120
+    OUTPUT_DIR: str = "generated_projects"
 ```
 
 ---
 
 ## 🧩 Architecture Deep Dive
 
-### Why LangGraph over a simple chain?
+### Why a Two-Phase Pipeline?
 
-A linear chain (`A → B → C`) cannot handle errors. LangGraph's `StateGraph` enables **cyclic execution** — the correction loop (`validate → correct → validate`) is impossible to model cleanly in a standard LangChain expression.
+Asking a single LLM call to generate both structure AND content for all files overwhelms small models (8B parameters). The two-phase approach decomposes this into manageable tasks — exactly how production AI coding tools work.
 
-### Why is the `OllamaClient` zero-dependency?
+### Why Per-File Content Injection?
 
-`core/llm_client.py` uses only Python's built-in `urllib` — no `requests`, no `httpx`. This is an intentional design choice to minimize the dependency footprint and make the inference layer auditable and portable.
+Each file gets its own LLM call because:
+1. **Focus** — The model only thinks about one file at a time
+2. **Quality** — Smaller context = fewer hallucinations
+3. **Resilience** — If one file's generation fails, others are unaffected
+4. **Scalability** — Works for 5 files or 50 files
 
-### Why is `FileSystemBuilder` separate from the graph?
+### Why `extra='forbid'` in Pydantic?
 
-Physical I/O is deterministic and side-effectful. Keeping it outside the graph maintains the **purity of the agent pipeline** — nodes only mutate state, never the filesystem. This also makes the graph independently testable.
+Without it, LLMs can hallucinate extra JSON fields (like `"project_name"` instead of `"root_name"`) and the validator silently ignores them. With `extra='forbid'`, any unexpected field triggers the self-correction loop.
 
-### The Self-Correction Loop — A Key Design Pattern
+### Why is the OllamaClient zero-dependency?
+
+`core/llm_client.py` uses only Python's built-in `urllib` — no `requests`, no `httpx`. This minimizes the dependency footprint and makes the inference layer fully auditable.
+
+### The Self-Correction Loop
 
 ```
 validate_structure → [error detected] → correct_structure
@@ -318,7 +310,7 @@ validate_structure → [error detected] → correct_structure
                   (retry counter++)
 ```
 
-This feedback loop mirrors how senior engineers review and push back on junior architects' plans. The `json_retries` counter in `PipelineState` is the circuit breaker — preventing infinite recursion while allowing the system enough attempts to converge on a valid solution.
+The corrector agent now receives the **correct schema definition** alongside the error, so it knows exactly what fields to fix.
 
 ---
 
@@ -326,11 +318,9 @@ This feedback loop mirrors how senior engineers review and push back on junior a
 
 - [ ] **Streaming output** — real-time token streaming from Ollama during generation
 - [ ] **Web UI** — FastAPI + React frontend for visual agent monitoring
-- [ ] **Template Library** — pre-validated architecture templates (microservices, monorepo, etc.)
-- [ ] **Multi-model support** — assign different models to different agents (e.g., `codellama` for structure, `llama3` for docs)
+- [ ] **Multi-model support** — assign different models to different agents
 - [ ] **Git initialization** — auto `git init`, `.gitignore` generation & initial commit
 - [ ] **Docker Compose scaffold** — generate `Dockerfile` and `docker-compose.yml` per service
-- [ ] **LangSmith tracing integration** — full agent execution telemetry (opt-in)
 
 ---
 

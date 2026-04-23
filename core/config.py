@@ -5,3 +5,4 @@ class Config(BaseModel):
     OLLAMA_MODEL: str = Field(default="llama3")
     MAX_RETRIES: int = Field(default=3)
     TIMEOUT_SECONDS: int = Field(default=120)
+    OUTPUT_DIR: str = Field(default="generated_projects")

@@ -3,22 +3,27 @@ from core.state import PipelineState
 from core.config import Config
 
 from generators.structure_generator import StructureGenerator
+from generators.content_generator import ContentGenerator
 from generators.doc_generator import DocGenerator
 from validators.json_validator import JsonValidator
 from correctors.json_corrector import JsonCorrector
 
 config = Config()
 struct_gen = StructureGenerator(config)
+content_gen = ContentGenerator(config)
 doc_gen = DocGenerator(config)
 json_val = JsonValidator()
 json_corr = JsonCorrector(config)
 
 
+# ── Node 1: Architect Agent ──────────────────────────────────────────────────
 def generate_structure_node(state: PipelineState) -> PipelineState:
     print(f"[*] Ajan (Mimar): İhtiyaçlar analiz ediliyor -> '{state['requirements']}'")
     struct_json = struct_gen.generate(state["requirements"])
     return {**state, "structure": struct_json, "json_retries": 0, "error": None}
 
+
+# ── Node 2: Validator Agent ──────────────────────────────────────────────────
 def validate_structure_node(state: PipelineState) -> PipelineState:
     print("[*] Linter (Mimari Denetleyici): Klasör şeması inceleniyor...")
     is_valid, error = json_val.validate(state["structure"])
@@ -29,6 +34,8 @@ def validate_structure_node(state: PipelineState) -> PipelineState:
         print(f"[-] Linter: Tasarım hatası -> {error}")
         return {**state, "error": error}
 
+
+# ── Node 3: Corrector Agent ─────────────────────────────────────────────────
 def correct_structure_node(state: PipelineState) -> PipelineState:
     retries = state.get("json_retries", 0) + 1
     print(f"[*] Ajan (Mimar Düzeltici): Tasarım kural ihlali onarılıyor... (Deneme: {retries})")
@@ -39,17 +46,31 @@ def correct_structure_node(state: PipelineState) -> PipelineState:
     fixed_json = json_corr.fix(state["structure"], state["error"], state["requirements"])
     return {**state, "structure": fixed_json, "json_retries": retries, "error": None}
 
+
+# ── Node 4: Content Injector Agent (NEW — Per-File Code Generation) ──────────
+def inject_content_node(state: PipelineState) -> PipelineState:
+    print("[*] Ajan (Kod Enjektörü): Her dosya için boilerplate kod üretiliyor...")
+    enriched_json = content_gen.inject_all(state["requirements"], state["structure"])
+    print("[+] Kod enjeksiyonu tamamlandı.")
+    return {**state, "structure": enriched_json}
+
+
+# ── Node 5: Doc Agent ───────────────────────────────────────────────────────
 def generate_documentation_node(state: PipelineState) -> PipelineState:
     print("[*] Ajan (Belgelendirici): Cursor/Claude için Mimari Proje Dökümü yazılıyor...")
     documentation = doc_gen.generate(state["requirements"], state["structure"])
     print("[+] Belgelendirme tamamlandı.")
     return {**state, "documentation": documentation}
 
+
+# ── Router ───────────────────────────────────────────────────────────────────
 def architecture_router(state: PipelineState) -> str:
     if state.get("error") is None:
-        return "generate_documentation"
+        return "inject_content"
     return "correct_structure"
 
+
+# ── Graph Builder ────────────────────────────────────────────────────────────
 def build_graph():
     builder = StateGraph(PipelineState)
     
@@ -57,6 +78,7 @@ def build_graph():
     builder.add_node("generate_structure", generate_structure_node)
     builder.add_node("validate_structure", validate_structure_node)
     builder.add_node("correct_structure", correct_structure_node)
+    builder.add_node("inject_content", inject_content_node)
     builder.add_node("generate_documentation", generate_documentation_node)
     
     # 2. Bağlantıları Kur
@@ -67,12 +89,13 @@ def build_graph():
         "validate_structure",
         architecture_router,
         {
-            "generate_documentation": "generate_documentation",
+            "inject_content": "inject_content",
             "correct_structure": "correct_structure"
         }
     )
     
     builder.add_edge("correct_structure", "validate_structure")
+    builder.add_edge("inject_content", "generate_documentation")
     builder.add_edge("generate_documentation", END)
     
     return builder.compile()

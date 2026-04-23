@@ -9,6 +9,8 @@ class StructureGenerator:
     def generate(self, requirements: str) -> str:
         """
         Transforms user requirements into a target JSON folder structure.
+        Phase 1 only generates the tree — no file content is produced here.
+        Content injection is handled by a separate agent in Phase 2.
         """
         prompt = STRUCTURE_GENERATION_PROMPT.format(requirements=requirements)
         

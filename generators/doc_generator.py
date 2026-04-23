@@ -1,6 +1,7 @@
 from core.llm_client import OllamaClient
 from core.config import Config
 from prompts.structure_prompts import DOC_GENERATION_SYSTEM, DOC_GENERATION_PROMPT
+from core.utils import extract_markdown
 
 class DocGenerator:
     def __init__(self, config: Config):
@@ -13,10 +14,5 @@ class DocGenerator:
         prompt = DOC_GENERATION_PROMPT.format(requirements=requirements, structure=structure_json)
         response = self.client.generate(prompt=prompt, system=DOC_GENERATION_SYSTEM)
         
-        # Clean potential markdown wrappers if the model hallucinated them
-        if response.startswith("```markdown"):
-            response = response.replace("```markdown", "", 1)
-            if response.endswith("```"):
-                response = response[:-3]
-                
-        return response.strip()
+        # Clean potential markdown wrappers safely
+        return extract_markdown(response)

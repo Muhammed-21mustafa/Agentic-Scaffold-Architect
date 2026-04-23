@@ -2,6 +2,7 @@ import json
 from typing import Tuple, Optional
 from schemas.folder_schema import FolderStructure
 from pydantic import ValidationError
+from core.utils import extract_json
 
 class JsonValidator:
     def validate(self, json_string: str) -> Tuple[bool, Optional[str]]:
@@ -13,8 +14,11 @@ class JsonValidator:
             return False, "JSON string is empty."
             
         try:
+            # Extract JSON cleanly to bypass hallucinations
+            clean_json = extract_json(json_string)
+            
             # Standard Python JSON parse check
-            parsed_json = json.loads(json_string)
+            parsed_json = json.loads(clean_json)
             
             # Deep structure validation with Pydantic
             FolderStructure.model_validate(parsed_json)

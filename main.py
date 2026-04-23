@@ -1,7 +1,11 @@
+from pathlib import Path
 from core.graph import build_graph
 from core.filesystem import FileSystemBuilder
+from core.config import Config
 
 def main():
+    config = Config()
+    
     print("Welcome to the AI Solutions Architect (Micro-Agent Pipeline)")
     print("----------------------------------------------------------")
     print("Bana projenizin ne olduğunu, hangi dilleri/framework'leri (ör. React, Django, Go) kullanacağınızı")
@@ -41,8 +45,10 @@ def main():
         
         if ans.lower() == 'e':
             print("\nDonanıma bağlanılıyor... Fiziksel ortam inşa ediliyor...")
-            # Masaüstüne "ScaffoldedProjects" diye bir ana dizine çıkarıyoruz
-            builder = FileSystemBuilder(base_path=r"c:\Users\musta\Desktop\ScaffoldedProjects")
+            
+            # Dinamik proje dizini
+            output_path = Path.cwd() / config.OUTPUT_DIR
+            builder = FileSystemBuilder(base_path=str(output_path))
             out_dir = builder.build(final_state["structure"], final_state["documentation"])
             
             print(f"\n[BAŞARILI] Projeniz kullanıma hazır! Konum: {out_dir}")
@@ -55,3 +61,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
