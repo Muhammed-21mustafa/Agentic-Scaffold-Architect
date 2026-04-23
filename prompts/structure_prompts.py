@@ -10,6 +10,8 @@ Rules:
 1. Output ONLY the folder/file tree as raw JSON. Do NOT include any code content inside files.
 2. Think about what a real production project needs: entry points, configuration, models, services, routes, tests, deployment files (Dockerfile, docker-compose.yml), documentation (README.md), dependency manifests (requirements.txt, package.json, pom.xml), and environment configs (.env.example).
 3. Every item must have "name" and "type" (either "file" or "folder"). Folders can have "children".
+4. ALWAYS include both Dockerfile AND docker-compose.yml at root level.
+5. Every folder MUST contain at least one file (e.g., __init__.py for Python packages). Do NOT create empty folders.
 
 JSON Schema (use EXACTLY these field names):
 {
@@ -72,21 +74,37 @@ Return the corrected RAW JSON without any conversational text."""
 # ============================================================================
 
 CONTENT_INJECTION_SYSTEM = """You are an expert Software Engineer.
-You will be given a file name, its location in a project, and the project's requirements.
+You will be given a file name, its location in a project, the project's requirements, and the code of previously generated files in this project.
 Your job is to write minimal but functional boilerplate code for this specific file.
 
 Rules:
 1. Write ONLY the raw source code. No markdown wrappers (```), no explanations, no "Note:" comments after the code. Your response must contain NOTHING except the file's source code.
-2. The code must be syntactically valid and use correct, modern API syntax for the requested frameworks.
-3. Include necessary imports, a basic class or function structure, and helpful inline comments.
-4. For dependency files (requirements.txt, package.json), list package names WITHOUT version pins (e.g., write 'fastapi' not 'fastapi==0.64.3'). This ensures the user always gets the latest compatible versions.
-5. For project-internal imports, carefully check the project structure provided. Only import modules and names that actually exist in the tree. Do not invent module names or variables that are not defined in the project."""
+2. Do NOT prefix your output with the filename (e.g., do NOT start with 'config/__init__.py:'). Just write the code directly.
+3. The code must be syntactically valid and use correct, modern API syntax for the requested frameworks.
+4. Include necessary imports, a basic class or function structure, and helpful inline comments.
+5. For dependency files (requirements.txt, package.json), write ONLY package names, one per line. Do NOT write Python code, import statements, or class definitions in requirements.txt.
+6. CRITICAL: ONLY import names that are explicitly defined in the "Previously Generated Files" section. If a name (class, variable, function) does NOT appear there, do NOT import it. Never hallucinate imports.
+7. Model files (in models/ directory) MUST define at least one model class. Do not leave them with only Base definition.
+
+FRAMEWORK-SPECIFIC RULES (MUST FOLLOW):
+- FastAPI: NEVER create a new FastAPI() instance in route files. Use: from fastapi import APIRouter; router = APIRouter(). Only main.py or app.py should have app = FastAPI().
+- FastAPI: The main app file (main.py or app.py) MUST call app.include_router(router) to connect route modules.
+- FastAPI: For tests, NEVER use app.test_client(). Use: from fastapi.testclient import TestClient; client = TestClient(app)
+- FastAPI: uvicorn.run(app) MUST be inside an 'if __name__ == "__main__":' guard. Never call it at module level.
+- SQLAlchemy: ALWAYS use create_engine() to create engine objects. NEVER assign a connection string directly to a variable named 'engine'.
+- SQLAlchemy: Define Base = declarative_base() in ONLY ONE file (e.g., models/__init__.py). Other model files must import it: from models import Base
+- Pydantic: NEVER use 'from pydantic import BaseSettings'. Use: from pydantic_settings import BaseSettings
+- Dockerfile: For uvicorn CMD, use dots not slashes: 'app.main:app' NOT 'app/main:app'
+- docker-compose: ALWAYS include 'ports' mapping for web services."""
 
 CONTENT_INJECTION_PROMPT = """Project Requirements:
 {requirements}
 
 Full Project Structure:
 {structure}
+
+Previously Generated Files (use these for correct imports — do NOT redefine their classes):
+{previously_generated}
 
 Target File: {file_path}
 

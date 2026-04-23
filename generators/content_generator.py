@@ -1,12 +1,11 @@
 import re
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from core.llm_client import OllamaClient
 from core.config import Config
 from prompts.structure_prompts import CONTENT_INJECTION_SYSTEM, CONTENT_INJECTION_PROMPT
 
 # File extensions that are worth injecting code into.
-# Everything else (e.g., images, binaries) is skipped.
 INJECTABLE_EXTENSIONS = {
     '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rs',
     '.html', '.css', '.scss',
@@ -26,6 +25,31 @@ INJECTABLE_FILENAMES = {
     '.gitignore', '.dockerignore', '.editorconfig',
 }
 
+# Dependency-based generation order.
+# Lower number = generated first. Files generated earlier become context for later files.
+FILE_PRIORITY = {
+    'config/': 10,
+    '.env': 10,
+    'settings': 10,
+    'models/__init__': 20,
+    'db': 20,
+    'database': 20,
+    'models/': 30,
+    'schemas/': 40,
+    'services/': 50,
+    'routes/': 60,
+    'api/': 60,
+    'main.py': 70,
+    'app.py': 70,
+    'asgi.py': 70,
+    'wsgi.py': 70,
+    'tests/': 80,
+    'Dockerfile': 90,
+    'docker-compose': 90,
+    'requirements.txt': 90,
+    '.gitignore': 90,
+}
+
 
 class ContentGenerator:
     def __init__(self, config: Config):
@@ -39,51 +63,97 @@ class ContentGenerator:
         """
         Walks the validated structure tree and injects boilerplate content
         into each important file via individual, focused LLM calls.
-        Returns the updated structure JSON string with content fields filled.
+        
+        Key design decisions:
+        1. Files are generated in dependency order (config → models → schemas → routes → main)
+        2. Each file receives the code of previously generated files as context
+        3. This prevents duplicate classes, phantom imports, and inconsistent APIs
         """
         data = json.loads(structure_json)
         items = data.get("items", [])
         
-        total_files = self._count_injectable_files(items)
-        injected = [0]  # mutable counter for nested function
+        # Step 1: Collect all injectable files with their paths
+        file_refs = []
+        self._collect_files(items, "", file_refs)
         
-        self._inject_recursive(items, requirements, structure_json, "", total_files, injected)
+        # Step 2: Sort by dependency order
+        file_refs.sort(key=lambda x: self._get_priority(x[0]))
+        
+        total = len(file_refs)
+        generated_context: Dict[str, str] = {}  # file_path -> generated code
+        
+        # Step 3: Generate content in order, building context as we go
+        for idx, (file_path, item_ref) in enumerate(file_refs, 1):
+            print(f"    [{idx}/{total}] Kod enjekte ediliyor -> {file_path}")
+            
+            # Build context from previously generated files
+            context_str = self._build_context(generated_context)
+            
+            content = self._generate_content(
+                requirements, structure_json, file_path, context_str
+            )
+            item_ref["content"] = content
+            generated_context[file_path] = content
         
         data["items"] = items
         return json.dumps(data, indent=2, ensure_ascii=False)
     
-    def _inject_recursive(
+    def _collect_files(
         self,
         items: List[Dict[str, Any]],
-        requirements: str,
-        structure_json: str,
         parent_path: str,
-        total: int,
-        injected: list
+        result: List[Tuple[str, Dict[str, Any]]]
     ):
-        """Recursively walks the tree and injects content into file nodes."""
+        """Recursively collects all injectable file nodes with their full paths."""
         for item in items:
             name = item.get("name", "")
             item_type = item.get("type", "file")
             
             if item_type == "folder":
-                children = item.get("children", [])
                 child_path = f"{parent_path}/{name}" if parent_path else name
-                self._inject_recursive(children, requirements, structure_json, child_path, total, injected)
+                self._collect_files(item.get("children", []), child_path, result)
             elif item_type == "file" and self._should_inject(name):
                 file_path = f"{parent_path}/{name}" if parent_path else name
-                injected[0] += 1
-                print(f"    [{injected[0]}/{total}] Kod enjekte ediliyor -> {file_path}")
-                
-                content = self._generate_content(requirements, structure_json, file_path)
-                item["content"] = content
+                result.append((file_path, item))
     
-    def _generate_content(self, requirements: str, structure_json: str, file_path: str) -> str:
+    def _get_priority(self, file_path: str) -> int:
+        """Returns generation priority for a file. Lower = generated first."""
+        path_lower = file_path.lower()
+        for pattern, priority in FILE_PRIORITY.items():
+            if pattern.lower() in path_lower:
+                return priority
+        return 50  # Default: middle priority
+    
+    def _build_context(self, generated: Dict[str, str]) -> str:
+        """
+        Builds a context string from previously generated files.
+        To avoid token overflow, includes only the first 20 lines of each file
+        (imports + class/function definitions — the most useful part for context).
+        """
+        if not generated:
+            return "(No files generated yet — this is the first file.)"
+        
+        parts = []
+        for path, code in generated.items():
+            # Take first 20 lines to keep context manageable
+            lines = code.split('\n')[:20]
+            summary = '\n'.join(lines)
+            if len(code.split('\n')) > 20:
+                summary += '\n# ... (truncated)'
+            parts.append(f"--- {path} ---\n{summary}")
+        
+        return '\n\n'.join(parts)
+    
+    def _generate_content(
+        self, requirements: str, structure_json: str,
+        file_path: str, previously_generated: str
+    ) -> str:
         """Makes a single, focused LLM call to generate content for one file."""
         prompt = CONTENT_INJECTION_PROMPT.format(
             requirements=requirements,
             structure=structure_json,
-            file_path=file_path
+            file_path=file_path,
+            previously_generated=previously_generated
         )
         response = self.client.generate(prompt=prompt, system=CONTENT_INJECTION_SYSTEM)
         return self._clean_llm_output(response)
@@ -98,6 +168,10 @@ class ContentGenerator:
         if not text:
             return ""
         
+        # 0. Strip file path prefix if model echoed the target filename
+        #    e.g., "config/__init__.py:\nfrom pydantic..." → "from pydantic..."
+        text = re.sub(r'^[\w/\\_\-\.]+\.(py|txt|yml|yaml|json|toml|cfg|ini|sh|bat):\s*\n', '', text)
+        
         # 1. Extract content from ```lang ... ``` wrapper if present
         md_match = re.search(r'^```[^\n]*\n(.*?)```', text, re.DOTALL)
         if md_match:
@@ -110,7 +184,6 @@ class ContentGenerator:
         # 3. Remove trailing conversational text (Note:, Explanation:, etc.)
         clean_lines = []
         for line in lines:
-            # If we hit a line that starts with known LLM commentary patterns, stop
             stripped = line.strip().lower()
             if stripped.startswith(('note:', 'explanation:', 'this is ', 'the above ', 'here is ')):
                 break
@@ -136,13 +209,3 @@ class ContentGenerator:
             return ext in INJECTABLE_EXTENSIONS
         
         return False
-    
-    def _count_injectable_files(self, items: List[Dict[str, Any]]) -> int:
-        """Counts how many files will receive content injection."""
-        count = 0
-        for item in items:
-            if item.get("type") == "folder":
-                count += self._count_injectable_files(item.get("children", []))
-            elif item.get("type") == "file" and self._should_inject(item.get("name", "")):
-                count += 1
-        return count
