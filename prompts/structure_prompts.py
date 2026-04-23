@@ -88,15 +88,12 @@ Rules:
 7. Model files (in models/ directory) MUST define at least one model class. Do not leave them with only Base definition.
 8. NEVER leave classes or functions empty with 'pass'. You must implement the actual SQLAlchemy fields, Pydantic fields, or CRUD logic.
 
-FRAMEWORK-SPECIFIC RULES (MUST FOLLOW):
-- FastAPI: ONLY use 'app = FastAPI()' in main.py or app.py. NEVER use it in schemas, models, config, or route files. For routes, use 'router = APIRouter()'.
-- FastAPI: The main app file (main.py or app.py) MUST call app.include_router(router) to connect route modules.
-- FastAPI: For tests, NEVER use app.test_client(). Use: from fastapi.testclient import TestClient; client = TestClient(app)
-- FastAPI: uvicorn.run(app) MUST be inside an 'if __name__ == "__main__":' guard. Never call it at module level.
-- SQLAlchemy: ALWAYS use create_engine() to create engine objects. NEVER assign a connection string directly to a variable named 'engine'.
-- SQLAlchemy: Define Base = declarative_base() in ONLY ONE file (e.g., models/__init__.py). Other model files must import it: from models import Base
-- Pydantic: NEVER use 'from pydantic import BaseSettings'. Use: from pydantic_settings import BaseSettings
-- Dockerfile: For uvicorn CMD, use dots not slashes: 'app.main:app' NOT 'app/main:app'
+UNIVERSAL ARCHITECTURE RULES (MUST FOLLOW):
+- Application Instance: ONLY initialize the main application server instance (e.g. app = FastAPI(), const app = express()) in the main entry point file. NEVER initialize it in routes, controllers, or models. For routes, use the framework's native router object (e.g. APIRouter(), express.Router()).
+- Route Connections: The main entry point MUST explicitly import and connect the route modules (e.g. app.include_router(router), app.use('/api', router)).
+- Database Connections: Centralize database connection/engine logic in a single file. NEVER assign a connection string directly to a variable named 'engine' without using the proper driver/ORM method.
+- ORM/Models: If using an ORM, define the Base declarative class in ONLY ONE initialization file and have all other models import and inherit from it.
+- Server Startup: The code that starts the server listening on a port (e.g. uvicorn.run, app.listen) MUST be inside a main execution block or guard (e.g. if __name__ == "__main__":). Never call it at the module level where it triggers on import.
 - docker-compose: ALWAYS include 'ports' mapping for web services."""
 
 CONTENT_INJECTION_PROMPT = """Project Requirements:
