@@ -301,6 +301,17 @@ Without it, LLMs can hallucinate extra JSON fields (like `"project_name"` instea
 
 `core/llm_client.py` uses only Python's built-in `urllib` — no `requests`, no `httpx`. This minimizes the dependency footprint and makes the inference layer fully auditable.
 
+### 🛡️ Fault-Tolerant AI Architecture: Defeating Context Poisoning
+
+When building this pipeline, we discovered a fascinating LLM phenomenon: **Context Poisoning**. 
+Because the system passes previously generated code to the next agent (Cross-File Context), the LLM becomes biased. If the agent generates 10 Python files and then needs to generate a `docker-compose.yml`, the 8B model sees so much Python in its context that it "forgets" it's writing YAML and hallucinates Python imports inside the Docker config!
+
+To solve this and other stubborn LLM hallucinations, we implemented a true fault-tolerant architecture:
+1. **Smart Context Filtering:** The pipeline analyzes file extensions. If the target is not a `.py` file, it actively hides the Python context from the LLM, neutralizing Context Poisoning.
+2. **Regex Post-Processing (The Safety Net):** Even with strict prompts, small models might hallucinate backend initializations (like `app = FastAPI()`) inside models or schemas. Our builder includes a post-processing step that runs RegEx filters over generated models/schemas to physically strip out hallucinated framework initializations before they reach the disk.
+
+This elevates the project from a simple "API wrapper" to a robust, self-healing **AI Agent Orchestrator**.
+
 ### The Self-Correction Loop
 
 ```
