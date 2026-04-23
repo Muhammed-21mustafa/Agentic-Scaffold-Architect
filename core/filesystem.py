@@ -25,7 +25,42 @@ class FileSystemBuilder:
         for item in items:
             self._build_item(project_dir, item)
             
+        self._post_process(project_dir)
+            
         return str(project_dir)
+        
+    def _post_process(self, project_dir: Path):
+        """
+        Gerçek Post-Processing: Şema ve modellerdeki inatçı LLM halüsinasyonlarını 
+        (örn: router = APIRouter() veya app = FastAPI()) regex ile bulup kökünden siler.
+        """
+        import re
+        for root, dirs, files in os.walk(project_dir):
+            for file in files:
+                if not file.endswith(".py"):
+                    continue
+                
+                # Bu temizlik sadece config, models ve schemas klasörlerinde yapılır
+                # (main.py veya routes/ dosyalarına dokunmayız çünkü onlarda bu kodlar gerçektir)
+                if "models" not in root and "schemas" not in root and "config" not in root:
+                    continue
+                    
+                filepath = Path(root) / file
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                
+                original_content = content
+                
+                # Yanlışlıkla üretilmiş app/router tanımlarını ve importlarını sil
+                content = re.sub(r'^.*?app\s*=\s*FastAPI\(\).*?$\n?', '', content, flags=re.MULTILINE)
+                content = re.sub(r'^.*?router\s*=\s*APIRouter\(\).*?$\n?', '', content, flags=re.MULTILINE)
+                content = re.sub(r'^from fastapi import .*?(FastAPI|APIRouter).*?$\n?', '', content, flags=re.MULTILINE)
+                
+                # Eğer değişiklik yapıldıysa dosyayı kaydet
+                if content != original_content:
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        f.write(content.strip() + '\n')
+                    print(f"  [POST-PROCESS] Halüsinasyon kökünden temizlendi: {filepath}")
         
     def _build_item(self, current_path: Path, item: Dict[str, Any]):
         name = item.get("name")

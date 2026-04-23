@@ -86,14 +86,21 @@ class ContentGenerator:
         for idx, (file_path, item_ref) in enumerate(file_refs, 1):
             print(f"    [{idx}/{total}] Kod enjekte ediliyor -> {file_path}")
             
-            # Build context from previously generated files
-            context_str = self._build_context(generated_context)
+            # Akıllı Context: Context Poisoning'i önlemek için, eğer hedef dosya
+            # .py uzantılı DEĞİLSE (örn: docker-compose.yml), önceki Python kodlarını gizle.
+            if file_path.endswith('.py'):
+                context_str = self._build_context(generated_context)
+            else:
+                context_str = "(No context needed for this non-Python file. Just write the raw file content requested.)"
             
             content = self._generate_content(
                 requirements, structure_json, file_path, context_str
             )
             item_ref["content"] = content
-            generated_context[file_path] = content
+            
+            # Sadece Python dosyalarının kodunu hafızaya al ki diğer Python dosyalarına context olsun
+            if file_path.endswith('.py'):
+                generated_context[file_path] = content
         
         data["items"] = items
         return json.dumps(data, indent=2, ensure_ascii=False)
@@ -149,6 +156,10 @@ class ContentGenerator:
         file_path: str, previously_generated: str
     ) -> str:
         """Makes a single, focused LLM call to generate content for one file."""
+        # IF IT'S NOT A PYTHON FILE, DON'T SEND PYTHON CONTEXT TO AVOID CONTEXT POISONING!
+        if not file_path.endswith('.py'):
+            previously_generated = "(No context needed for this file type.)"
+            
         prompt = CONTENT_INJECTION_PROMPT.format(
             requirements=requirements,
             structure=structure_json,
